@@ -8,9 +8,9 @@
 #include <random>
 #include <string>
 #include <vector>
-#include <iomanip>
-#include <sstream>
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 
 // Список доступных унарных функций
 const std::vector<std::string> kFunctions = {
@@ -30,8 +30,11 @@ public:
         bool_dist(0, 1),
         error_dist(0.0, 1.0),
         error_type_dist(0, 2),
-        char_dist(0, 255),
-        pos_dist(0, 100) {}
+        char_dist(32, 126), // Только печатные символы
+        pos_dist(0, 100),
+        type_roll_depth1_dist(0, 9),
+        type_roll_depth2_dist(0, 19),
+        unit_dist(-0.99, 0.99) {}
 
     std::string generate(int depth) {
         // Базовый случай: при нулевой или отрицательной глубине всегда возвращаем число
@@ -42,7 +45,7 @@ public:
         // При глубине 1 можем генерировать только функции от чисел или простые числа
         // чтобы избежать бесконечной рекурсии
         if (depth == 1) {
-            int type_roll = std::uniform_int_distribution<>(0, 9)(gen);
+            int type_roll = type_roll_depth1_dist(gen);
             if (type_roll < 3) { // 30% - функция от числа
                 std::string func = kFunctions[func_dist(gen)];
                 std::string arg = generateNumber();
@@ -52,7 +55,12 @@ public:
                     arg = generateNumberInUnitRange();
                 }
 
-                std::string result = func + "(" + arg + ")";
+                std::string result;
+                result.reserve(func.size() + arg.size() + 3);
+                result.append(func);
+                result.append("(");
+                result.append(arg);
+                result.append(")");
                 return introduceError(result);
             } else { // 70% - просто число
                 return generateNumber();
@@ -61,7 +69,7 @@ public:
 
         // При глубине >= 2 генерируем сложные выражения
         // Изменяем вероятности: 0-15 бинарная операция (80%), 16-18 функция (15%), 19 просто число (5%)
-        int type_roll = std::uniform_int_distribution<>(0, 19)(gen);
+        int type_roll = type_roll_depth2_dist(gen);
         
         if (type_roll < 16) { // Бинарная операция: A op B (80%)
             char op = operations[op_dist(gen)];
@@ -76,7 +84,15 @@ public:
                 right = generateNumber(true);
             }
 
-            std::string result = "(" + left + " " + op + " " + right + ")";
+            std::string result;
+            result.reserve(left.size() + right.size() + 5);
+            result.append("(");
+            result.append(left);
+            result.append(" ");
+            result.append(1, op);
+            result.append(" ");
+            result.append(right);
+            result.append(")");
             return introduceError(result);
 
         } else if (type_roll < 19) { // Функция: func(A) (15%)
@@ -88,7 +104,12 @@ public:
                 arg = generateNumberInUnitRange();
             }
 
-            std::string result = func + "(" + arg + ")";
+            std::string result;
+            result.reserve(func.size() + arg.size() + 3);
+            result.append(func);
+            result.append("(");
+            result.append(arg);
+            result.append(")");
             return introduceError(result);
         } else { // Просто число (5% - редко)
             return generateNumber();
@@ -106,6 +127,9 @@ private:
     std::uniform_int_distribution<> error_type_dist;
     std::uniform_int_distribution<> char_dist;
     std::uniform_int_distribution<> pos_dist;
+    std::uniform_int_distribution<> type_roll_depth1_dist;
+    std::uniform_int_distribution<> type_roll_depth2_dist;
+    std::uniform_real_distribution<> unit_dist;
 
     std::vector<char> operations = {'+', '-', '*', '/'};
 
@@ -114,17 +138,18 @@ private:
         if (avoidZero && std::abs(num) < 0.1) {
             num = 1.0;
         }
-        std::stringstream ss;
-        ss << std::fixed << std::setprecision(2) << num;
-        return ss.str();
+        // Оптимизированное форматирование: используем sprintf вместо stringstream
+        char buffer[32];
+        std::snprintf(buffer, sizeof(buffer), "%.2f", num);
+        return std::string(buffer);
     }
 
     std::string generateNumberInUnitRange() {
-        std::uniform_real_distribution<> unit_dist(-0.99, 0.99);
         double num = unit_dist(gen);
-        std::stringstream ss;
-        ss << std::fixed << std::setprecision(2) << num;
-        return ss.str();
+        // Оптимизированное форматирование: используем sprintf вместо stringstream
+        char buffer[32];
+        std::snprintf(buffer, sizeof(buffer), "%.2f", num);
+        return std::string(buffer);
     }
 
     // Вносит ошибки в выражение с малой вероятностью
@@ -138,10 +163,13 @@ private:
         switch (errorType) {
             case 0: // Незакрытая скобка - убираем последнюю закрывающую скобку
                 {
+                    // Оптимизация: ищем с конца строки напрямую, без find_last_of
                     std::string result = expr;
-                    size_t lastBracket = result.find_last_of(')');
-                    if (lastBracket != std::string::npos) {
-                        result.erase(lastBracket, 1);
+                    for (size_t i = result.length(); i > 0; --i) {
+                        if (result[i - 1] == ')') {
+                            result.erase(i - 1, 1);
+                            break;
+                        }
                     }
                     return result;
                 }
@@ -153,10 +181,6 @@ private:
                         // Вставляем случайный символ в середину
                         size_t pos = result.length() / 2;
                         char randomChar = static_cast<char>(char_dist(gen));
-                        // Используем только печатные символы
-                        if (randomChar < 32 || randomChar > 126) {
-                            randomChar = '@';
-                        }
                         result.insert(pos, 1, randomChar);
                     }
                     return result;
@@ -167,7 +191,7 @@ private:
                     std::string result = expr;
                     // Вставляем открывающую скобку в случайное место
                     if (result.length() > 1) {
-                        size_t pos = std::uniform_int_distribution<>(0, result.length() - 1)(gen);
+                        size_t pos = pos_dist(gen) % result.length();
                         result.insert(pos, "(");
                     }
                     return result;

@@ -19,6 +19,11 @@ find_package(Threads REQUIRED)
 target_link_libraries(expression_parser_lib PRIVATE Threads::Threads)
 
 add_executable(expression_parser
-    src/main.cpp)
+    src/main.cpp
+    src/console.cpp
+    src/file_utils.cpp
+    src/progress_bar.cpp
+    src/user_input.cpp
+    src/generate_mode.cpp)
 
 target_link_libraries(expression_parser PRIVATE expression_parser_lib)
