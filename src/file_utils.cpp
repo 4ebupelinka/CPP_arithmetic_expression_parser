@@ -1,9 +1,11 @@
 #include "file_utils.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #ifdef _WIN32
@@ -63,38 +65,91 @@ std::size_t countLinesInFile(const std::filesystem::path& path) {
 
 // Поиск корневой директории проекта (ищет папку tests или файл CMakeLists.txt)
 std::filesystem::path findProjectRoot() {
-    std::filesystem::path current = std::filesystem::current_path();
+    try {
+        std::filesystem::path current = std::filesystem::current_path();
 
-    // Поднимаемся вверх по директориям, пока не найдем папку tests или CMakeLists.txt
-    while (!current.empty() && current != current.root_path()) {
-        std::filesystem::path testsDir = current / "tests";
-        std::filesystem::path cmakeFile = current / "CMakeLists.txt";
+        // Поднимаемся вверх по директориям, пока не найдем папку tests или CMakeLists.txt
+        while (!current.empty() && current != current.root_path()) {
+            try {
+                std::filesystem::path testsDir = current / "tests";
+                std::filesystem::path cmakeFile = current / "CMakeLists.txt";
 
-        if (std::filesystem::exists(testsDir) && std::filesystem::is_directory(testsDir)) {
-            return current;
+                if (std::filesystem::exists(testsDir) && std::filesystem::is_directory(testsDir)) {
+                    return current;
+                }
+                if (std::filesystem::exists(cmakeFile) && std::filesystem::is_regular_file(cmakeFile)) {
+                    return current;
+                }
+            }
+            catch (const std::filesystem::filesystem_error&) {
+                // Пропускаем директории, к которым нет доступа
+            }
+
+            std::filesystem::path parent = current.parent_path();
+            if (parent == current) {
+                // Достигли корня файловой системы
+                break;
+            }
+            current = parent;
         }
-        if (std::filesystem::exists(cmakeFile) && std::filesystem::is_regular_file(cmakeFile)) {
-            return current;
-        }
-
-        current = current.parent_path();
+    }
+    catch (const std::filesystem::filesystem_error&) {
+        // Если произошла ошибка, возвращаем текущую директорию
     }
 
     // Если не нашли, возвращаем текущую директорию
     return std::filesystem::current_path();
 }
 
+// Вспомогательная функция для сравнения расширений файлов (нечувствительна к регистру)
+bool hasExtension(const std::filesystem::path& path, const std::string& ext) {
+    std::string pathExt = path.extension().string();
+    if (pathExt.empty()) {
+        return false;
+    }
+    
+    // Приводим к нижнему регистру для сравнения
+    std::string lowerPathExt = pathExt;
+    std::string lowerExt = ext;
+    std::transform(lowerPathExt.begin(), lowerPathExt.end(), lowerPathExt.begin(), ::tolower);
+    std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(), ::tolower);
+    
+    return lowerPathExt == lowerExt;
+}
+
 // Поиск всех .txt файлов в директории проекта
 std::vector<std::filesystem::path> findTxtFiles(const std::filesystem::path& directory) {
     std::vector<std::filesystem::path> txtFiles;
-    if (!std::filesystem::exists(directory) || !std::filesystem::is_directory(directory)) {
-        return txtFiles;
-    }
-
-    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".txt") {
-            txtFiles.push_back(entry.path());
+    
+    try {
+        if (!std::filesystem::exists(directory)) {
+            return txtFiles;
         }
+        
+        if (!std::filesystem::is_directory(directory)) {
+            return txtFiles;
+        }
+
+        // Используем recursive_directory_iterator с ограничением глубины или directory_iterator
+        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+            try {
+                // Проверяем, что это обычный файл
+                if (entry.is_regular_file()) {
+                    // Используем нечувствительное к регистру сравнение расширения
+                    if (hasExtension(entry.path(), ".txt")) {
+                        txtFiles.push_back(entry.path());
+                    }
+                }
+            }
+            catch (const std::filesystem::filesystem_error&) {
+                // Пропускаем файлы, к которым нет доступа или которые были удалены
+                continue;
+            }
+        }
+    }
+    catch (const std::filesystem::filesystem_error&) {
+        // Если не удалось прочитать директорию, возвращаем пустой список
+        return txtFiles;
     }
 
     std::sort(txtFiles.begin(), txtFiles.end());
@@ -103,8 +158,8 @@ std::vector<std::filesystem::path> findTxtFiles(const std::filesystem::path& dir
 
 // Получение текущего времени в формате для имени файла
 std::string getCurrentTimeString() {
-    std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    std::time_t time = std::chrono::system_clock::to_time_t(now);
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
     std::tm tm_buf;
 
 #ifdef _WIN32

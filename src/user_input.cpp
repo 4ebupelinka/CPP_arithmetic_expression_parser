@@ -27,7 +27,7 @@ std::size_t parseNumber(const std::string& value) {
 std::filesystem::path selectInputFile() {
     std::filesystem::path projectDir = findProjectRoot();
     std::filesystem::path testsDir = projectDir / "tests";
-    std::vector<std::filesystem::path> txtFiles = findTxtFiles(testsDir);
+    auto txtFiles = findTxtFiles(testsDir);
 
     if (txtFiles.empty()) {
         std::cout << Color::YELLOW << "Внимание: " << Color::RESET

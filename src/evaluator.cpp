@@ -12,11 +12,11 @@ namespace expr {
 double ExpressionEvaluator::evaluate(const std::string& expression) const {
     // Этап 1: Лексический анализ
     Tokenizer tokenizer(expression);
-    auto tokens = tokenizer.tokenize();
+    std::vector<Token> tokens = tokenizer.tokenize();
 
     // Этап 2: Синтаксический анализ
     Parser parser(std::move(tokens));
-    auto ast = parser.parse();
+    std::unique_ptr<AstNode> ast = parser.parse();
 
     // Этап 3: Вычисление
     return ast->evaluate();
